@@ -106,11 +106,34 @@ var supportedAlgorithms = map[string]bool{
 	PS512: true,
 }
 
+type newProviderConfig struct {
+	// SkipIssuerCheck is intended for specialized cases where the the caller wishes to
+	// Issuer is violating the OpenID Connect specifications
+
+	// Mismatched issuers often indicate client mis-configuration. If mismatches are
+	// unexpected, evaluate if the provided issuer URL is incorrect instead of enabling
+	// this option.
+	SkipIssuerCheck bool
+}
+
+type newProviderOption func(o *newProviderConfig)
+
+func NewProviderWithoutIssuerCheck() newProviderOption {
+	return func(o *newProviderConfig) {
+		o.SkipIssuerCheck = true
+	}
+}
+
 // NewProvider uses the OpenID Connect discovery mechanism to construct a Provider.
 //
 // The issuer is the URL identifier for the service. For example: "https://accounts.google.com"
 // or "https://login.salesforce.com".
-func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
+func NewProvider(ctx context.Context, issuer string, options ...newProviderOption) (*Provider, error) {
+	config := newProviderConfig{}
+	for _, option := range options {
+		option(&config)
+	}
+
 	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
 	req, err := http.NewRequest("GET", wellKnown, nil)
 	if err != nil {
@@ -137,7 +160,7 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 		return nil, fmt.Errorf("oidc: failed to decode provider discovery object: %v", err)
 	}
 
-	if p.Issuer != issuer {
+	if p.Issuer != issuer && !config.SkipIssuerCheck {
 		return nil, fmt.Errorf("oidc: issuer did not match the issuer returned by provider, expected %q got %q", issuer, p.Issuer)
 	}
 	var algs []string
